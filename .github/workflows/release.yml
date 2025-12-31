@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-${GITHUB_SHA::8}")
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if git describe --tags --abbrev=0 2>/dev/null; then
+            PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
+            echo "## What's Changed" > CHANGELOG.md
+            git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" >> CHANGELOG.md
+          else
+            echo "## Initial Release" > CHANGELOG.md
+            echo "First release of Container Composer" >> CHANGELOG.md
+          fi
+          cat CHANGELOG.md
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          release_name: Release v${{ steps.get_version.outputs.version }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: false
+
+  build-and-upload:
+    name: Build and Upload Assets
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            artifact_name: container-composer
+            asset_name: container-composer-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            artifact_name: container-composer
+            asset_name: container-composer-linux-arm64
+
+          # macOS
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            artifact_name: container-composer
+            asset_name: container-composer-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            artifact_name: container-composer
+            asset_name: container-composer-darwin-arm64
+
+          # Windows
+          - os: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            artifact_name: container-composer.exe
+            asset_name: container-composer-windows-amd64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build \
+            -ldflags "-X github.com/firasmosbahi/container-composer/cli.Version=${{ needs.create-release.outputs.version }} -X github.com/firasmosbahi/container-composer/cli.BuildDate=$(date -u '+%Y-%m-%d_%H:%M:%S')" \
+            -o ${{ matrix.artifact_name }} \
+            ./cmd/container-composer
+
+      - name: Create archive
+        run: |
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            zip ${{ matrix.asset_name }}.zip ${{ matrix.artifact_name }}
+            ASSET_PATH="${{ matrix.asset_name }}.zip"
+          else
+            tar czf ${{ matrix.asset_name }}.tar.gz ${{ matrix.artifact_name }}
+            ASSET_PATH="${{ matrix.asset_name }}.tar.gz"
+          fi
+          echo "ASSET_PATH=$ASSET_PATH" >> $GITHUB_ENV
+
+      - name: Generate checksum
+        run: |
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            sha256sum ${{ matrix.asset_name }}.zip > ${{ matrix.asset_name }}.zip.sha256
+          else
+            sha256sum ${{ matrix.asset_name }}.tar.gz > ${{ matrix.asset_name }}.tar.gz.sha256
+          fi
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ env.ASSET_PATH }}
+          asset_name: ${{ env.ASSET_PATH }}
+          asset_content_type: application/octet-stream
+
+      - name: Upload Checksum
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ${{ env.ASSET_PATH }}.sha256
+          asset_name: ${{ env.ASSET_PATH }}.sha256
+          asset_content_type: text/plain
