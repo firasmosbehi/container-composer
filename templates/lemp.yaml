@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: {{.ProjectName}}_nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./src:/var/www/html
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    depends_on:
+      - php
+      - db
+    networks:
+      - lemp-network
+
+  php:
+    image: php:8.2-fpm
+    container_name: {{.ProjectName}}_php
+    volumes:
+      - ./src:/var/www/html
+    networks:
+      - lemp-network
+
+  db:
+    image: mysql:8.0
+    container_name: {{.ProjectName}}_db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_DATABASE:-myapp}
+      MYSQL_USER: ${DB_USER:-dbuser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-dbpassword}
+    volumes:
+      - db-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - lemp-network
+
+volumes:
+  db-data:
+
+networks:
+  lemp-network:
+    driver: bridge

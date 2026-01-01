@@ -1,0 +1,158 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  gateway:
+    image: nginx:alpine
+    container_name: {{.ProjectName}}_gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+    networks:
+      - microservices-network
+
+  # User Service
+  user-service:
+    image: node:20-alpine
+    container_name: {{.ProjectName}}_user_service
+    working_dir: /app
+    volumes:
+      - ./services/user-service:/app
+    command: sh -c "npm install && npm start"
+    ports:
+      - "3001:3000"
+    environment:
+      SERVICE_NAME: user-service
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/users
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - microservices-network
+
+  # Product Service
+  product-service:
+    image: node:20-alpine
+    container_name: {{.ProjectName}}_product_service
+    working_dir: /app
+    volumes:
+      - ./services/product-service:/app
+    command: sh -c "npm install && npm start"
+    ports:
+      - "3002:3000"
+    environment:
+      SERVICE_NAME: product-service
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/products
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - microservices-network
+
+  # Order Service
+  order-service:
+    image: node:20-alpine
+    container_name: {{.ProjectName}}_order_service
+    working_dir: /app
+    volumes:
+      - ./services/order-service:/app
+    command: sh -c "npm install && npm start"
+    ports:
+      - "3003:3000"
+    environment:
+      SERVICE_NAME: order-service
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/orders
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - microservices-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{.ProjectName}}_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - microservices-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: {{.ProjectName}}_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - microservices-network
+
+  # RabbitMQ Message Broker
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: {{.ProjectName}}_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    networks:
+      - microservices-network
+
+  # Monitoring - Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: {{.ProjectName}}_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - microservices-network
+
+  # Monitoring - Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: {{.ProjectName}}_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - microservices-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  microservices-network:
+    driver: bridge
