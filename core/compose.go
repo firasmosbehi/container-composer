@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -15,13 +16,80 @@ type ComposeFile struct {
 	Volumes  map[string]Volume  `yaml:"volumes,omitempty"`
 }
 
+// Environment represents environment variables that can be in map or array format
+type Environment map[string]string
+
+// UnmarshalYAML handles both map and array format for environment variables
+func (e *Environment) UnmarshalYAML(value *yaml.Node) error {
+	*e = make(map[string]string)
+
+	switch value.Kind {
+	case yaml.MappingNode:
+		// Map format: KEY: value
+		var envMap map[string]string
+		if err := value.Decode(&envMap); err != nil {
+			return err
+		}
+		*e = envMap
+
+	case yaml.SequenceNode:
+		// Array format: - KEY=value
+		var envList []string
+		if err := value.Decode(&envList); err != nil {
+			return err
+		}
+		for _, item := range envList {
+			parts := strings.SplitN(item, "=", 2)
+			if len(parts) == 2 {
+				(*e)[parts[0]] = parts[1]
+			} else {
+				(*e)[parts[0]] = ""
+			}
+		}
+
+	default:
+		return fmt.Errorf("environment must be a map or array")
+	}
+
+	return nil
+}
+
+// HealthCheckTest represents test that can be a string or array
+type HealthCheckTest []string
+
+// UnmarshalYAML handles both string and array format for health check test
+func (h *HealthCheckTest) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// String format
+		var test string
+		if err := value.Decode(&test); err != nil {
+			return err
+		}
+		*h = []string{test}
+
+	case yaml.SequenceNode:
+		// Array format
+		var testArray []string
+		if err := value.Decode(&testArray); err != nil {
+			return err
+		}
+		*h = testArray
+
+	default:
+		return fmt.Errorf("test must be a string or array")
+	}
+
+	return nil
+}
+
 // Service represents a service in docker-compose.yml
 type Service struct {
 	Name        string            `yaml:"-"` // Don't marshal, used as map key
 	Image       string            `yaml:"image,omitempty"`
 	Build       *BuildConfig      `yaml:"build,omitempty"`
 	Ports       []string          `yaml:"ports,omitempty"`
-	Environment map[string]string `yaml:"environment,omitempty"`
+	Environment Environment       `yaml:"environment,omitempty"`
 	Volumes     []string          `yaml:"volumes,omitempty"`
 	DependsOn   []string          `yaml:"depends_on,omitempty"`
 	Networks    []string          `yaml:"networks,omitempty"`
@@ -33,6 +101,7 @@ type Service struct {
 	User        string            `yaml:"user,omitempty"`
 	Hostname    string            `yaml:"hostname,omitempty"`
 	Labels      map[string]string `yaml:"labels,omitempty"`
+	ContainerName string          `yaml:"container_name,omitempty"`
 }
 
 // BuildConfig represents build configuration for a service
@@ -44,10 +113,10 @@ type BuildConfig struct {
 
 // HealthCheck represents health check configuration
 type HealthCheck struct {
-	Test     []string `yaml:"test,omitempty"`
-	Interval string   `yaml:"interval,omitempty"`
-	Timeout  string   `yaml:"timeout,omitempty"`
-	Retries  int      `yaml:"retries,omitempty"`
+	Test     HealthCheckTest `yaml:"test,omitempty"`
+	Interval string          `yaml:"interval,omitempty"`
+	Timeout  string          `yaml:"timeout,omitempty"`
+	Retries  int             `yaml:"retries,omitempty"`
 }
 
 // Network represents a network in docker-compose.yml
@@ -143,6 +212,19 @@ func (cf *ComposeFile) Validate() error {
 
 // GetDependencyGraph builds a dependency graph of services
 func (cf *ComposeFile) GetDependencyGraph() (map[string][]string, error) {
-	// TODO: Implement dependency graph generation
-	return nil, nil
+	graph, err := cf.BuildDependencyGraph()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to simple map for backward compatibility
+	result := make(map[string][]string)
+	for name, node := range graph.Services {
+		deps := []string{}
+		for _, dep := range node.DependsOn {
+			deps = append(deps, dep.Name)
+		}
+		result[name] = deps
+	}
+	return result, nil
 }

@@ -33,6 +33,11 @@ func newMainMenuModel() mainMenuModel {
 			desc:  "Add services, networks, or volumes to existing project",
 			id:    "add",
 		},
+		menuItem{
+			title: "📊 View Dependency Graph",
+			desc:  "Visualize service dependencies and relationships",
+			id:    "graph",
+		},
 	}
 
 	// Create list with delegate
@@ -72,6 +77,9 @@ func (m mainMenuModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return newInitModel(), nil
 				case "add":
 					return newAddMenuModel(), nil
+				case "graph":
+					newModel := newDependencyGraphModel()
+					return newModel, newModel.Init()
 				}
 			}
 		}
