@@ -115,78 +115,88 @@ func runInit(cmd *cobra.Command, args []string) error {
 func runWizard(defaultProjectName string) (string, string, error) {
 	fmt.Println("\n✨ Welcome to Container Composer Project Wizard! ✨\n")
 
-	// Get available templates
-	availableTemplates := templates.GetAvailableTemplates()
+	// Step 1: Get category selection
+	categories := templates.GetCategories()
+	categoryOptions := make([]string, len(categories))
+	categoryMap := make(map[string]string) // displayName -> key
 
-	// Create template options grouped by category
-	templateOptions := make([]string, len(availableTemplates))
-	templateMap := make(map[string]*templates.Template)
+	for i, cat := range categories {
+		option := fmt.Sprintf("%s - %s", cat.DisplayName, cat.Description)
+		categoryOptions[i] = option
+		categoryMap[option] = cat.Key
+	}
 
-	for i, tmpl := range availableTemplates {
+	var selectedCategoryOption string
+	categoryPrompt := &survey.Select{
+		Message: "Choose a project category:",
+		Options: categoryOptions,
+		Help:    "Select the type of project you want to create",
+	}
+
+	if err := survey.AskOne(categoryPrompt, &selectedCategoryOption); err != nil {
+		return "", "", fmt.Errorf("category selection cancelled: %w", err)
+	}
+
+	selectedCategory := categoryMap[selectedCategoryOption]
+
+	// Step 2: Get templates for selected category
+	filteredTemplates := templates.GetTemplatesByCategory(selectedCategory)
+	if len(filteredTemplates) == 0 {
+		return "", "", fmt.Errorf("no templates found for category: %s", selectedCategory)
+	}
+
+	templateOptions := make([]string, len(filteredTemplates))
+	templateMap := make(map[string]string)
+
+	for i, tmpl := range filteredTemplates {
 		option := fmt.Sprintf("%s - %s", tmpl.Name, tmpl.Description)
 		templateOptions[i] = option
-		templateMap[option] = &availableTemplates[i]
+		templateMap[option] = tmpl.Name
 	}
 
-	// Questions
-	var selectedOption string
+	var selectedTemplateOption string
+	templatePrompt := &survey.Select{
+		Message: "Choose a template:",
+		Options: templateOptions,
+		Help:    "Select the specific template to use",
+	}
+
+	if err := survey.AskOne(templatePrompt, &selectedTemplateOption); err != nil {
+		return "", "", fmt.Errorf("template selection cancelled: %w", err)
+	}
+
+	selectedTemplate := templateMap[selectedTemplateOption]
+
+	// Step 3: Get project name
 	var projectName string
-
-	questions := []*survey.Question{
-		{
-			Name: "template",
-			Prompt: &survey.Select{
-				Message: "Choose a project template:",
-				Options: templateOptions,
-				Help:    "Select the stack that best fits your project needs",
-			},
-		},
-		{
-			Name: "projectname",
-			Prompt: &survey.Input{
-				Message: "Project name:",
-				Default: defaultProjectName,
-				Help:    "This will be used in container names and the README",
-			},
-			Validate: survey.Required,
-		},
+	projectPrompt := &survey.Input{
+		Message: "Project name:",
+		Default: defaultProjectName,
+		Help:    "This will be used in container names and the README",
 	}
 
-	answers := struct {
-		Template    string
-		ProjectName string
-	}{}
-
-	err := survey.Ask(questions, &answers)
-	if err != nil {
-		return "", "", err
+	if err := survey.AskOne(projectPrompt, &projectName, survey.WithValidator(survey.Required)); err != nil {
+		return "", "", fmt.Errorf("project name input cancelled: %w", err)
 	}
 
-	selectedOption = answers.Template
-	projectName = strings.TrimSpace(answers.ProjectName)
+	projectName = strings.TrimSpace(projectName)
 
-	// Extract template name from option
-	selectedTemplate := templateMap[selectedOption]
-	if selectedTemplate == nil {
-		return "", "", fmt.Errorf("invalid template selection")
-	}
-
-	// Confirmation
-	confirm := false
+	// Step 4: Confirmation
+	var confirmed bool
 	confirmPrompt := &survey.Confirm{
-		Message: fmt.Sprintf("Create project '%s' with template '%s'?", projectName, selectedTemplate.Name),
+		Message: fmt.Sprintf("Create project '%s' with template '%s'?", projectName, selectedTemplate),
 		Default: true,
 	}
 
-	if err := survey.AskOne(confirmPrompt, &confirm); err != nil {
-		return "", "", err
+	if err := survey.AskOne(confirmPrompt, &confirmed); err != nil {
+		return "", "", fmt.Errorf("confirmation cancelled: %w", err)
 	}
 
-	if !confirm {
-		return "", "", fmt.Errorf("initialization cancelled by user")
+	if !confirmed {
+		return "", "", fmt.Errorf("project creation cancelled by user")
 	}
 
-	return selectedTemplate.Name, projectName, nil
+	return selectedTemplate, projectName, nil
 }
 
 func printSuccessMessage(projectName, projectDir string, tmpl *templates.Template) {

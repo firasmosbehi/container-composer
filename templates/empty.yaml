@@ -1,0 +1,27 @@
+version: '3.8'
+
+# Define your services here
+# Example:
+# services:
+#   app:
+#     image: nginx:latest
+#     ports:
+#       - "80:80"
+
+services:
+
+# Define your volumes here
+# Example:
+# volumes:
+#   data:
+#     driver: local
+
+volumes:
+
+# Define your networks here
+# Example:
+# networks:
+#   app-network:
+#     driver: bridge
+
+networks:

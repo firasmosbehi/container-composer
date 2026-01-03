@@ -29,6 +29,9 @@ var nodejsTemplate string
 //go:embed microservices.yaml
 var microservicesTemplate string
 
+//go:embed empty.yaml
+var emptyTemplate string
+
 // Template represents a project template
 type Template struct {
 	Name        string
@@ -50,6 +53,7 @@ const (
 	CategoryDatabase     = "database"
 	CategoryMicroservice = "microservice"
 	CategoryFullStack    = "fullstack"
+	CategoryStarter      = "starter"
 )
 
 // GetAvailableTemplates returns all available project templates
@@ -97,6 +101,12 @@ func GetAvailableTemplates() []Template {
 			Category:    CategoryMicroservice,
 			Content:     microservicesTemplate,
 		},
+		{
+			Name:        "empty",
+			Description: "Empty project with basic Docker Compose structure",
+			Category:    CategoryStarter,
+			Content:     emptyTemplate,
+		},
 	}
 }
 
@@ -109,6 +119,53 @@ func GetTemplate(name string) (*Template, error) {
 		}
 	}
 	return nil, fmt.Errorf("template '%s' not found", name)
+}
+
+// CategoryInfo holds display information for a category
+type CategoryInfo struct {
+	Key         string // Internal category key (e.g., "starter")
+	DisplayName string // User-friendly name with emoji (e.g., "📦 Starter")
+	Description string // Category description
+}
+
+// GetCategories returns all available categories with display info in preferred order
+func GetCategories() []CategoryInfo {
+	return []CategoryInfo{
+		{
+			Key:         CategoryStarter,
+			DisplayName: "📦 Starter",
+			Description: "Empty templates to build from scratch",
+		},
+		{
+			Key:         CategoryFullStack,
+			DisplayName: "🌐 Full-Stack",
+			Description: "Complete stacks with frontend and backend",
+		},
+		{
+			Key:         CategoryWeb,
+			DisplayName: "⚡ Web",
+			Description: "Backend web frameworks and APIs",
+		},
+		{
+			Key:         CategoryMicroservice,
+			DisplayName: "🔧 Microservices",
+			Description: "Distributed systems with multiple services",
+		},
+	}
+}
+
+// GetTemplatesByCategory returns templates for a specific category
+func GetTemplatesByCategory(category string) []Template {
+	allTemplates := GetAvailableTemplates()
+	var filtered []Template
+
+	for _, tmpl := range allTemplates {
+		if tmpl.Category == category {
+			filtered = append(filtered, tmpl)
+		}
+	}
+
+	return filtered
 }
 
 // TemplateVars holds variables for template generation
@@ -196,6 +253,13 @@ DEBUG=True
 POSTGRES_PASSWORD=postgres
 GRAFANA_PASSWORD=admin
 `
+	case "empty":
+		envContent = `# Environment variables for your project
+# Add your variables here
+# Example:
+# DATABASE_URL=postgresql://user:password@db:5432/dbname
+# API_KEY=your-api-key-here
+`
 	default:
 		envContent = "# Environment variables\n"
 	}
@@ -207,7 +271,46 @@ GRAFANA_PASSWORD=admin
 func (t *Template) createReadme(outputDir string, vars TemplateVars) error {
 	readmePath := filepath.Join(outputDir, "README.md")
 
-	readmeContent := fmt.Sprintf("# %s\n\n"+
+	var readmeContent string
+
+	// Special README for empty template
+	if t.Name == "empty" {
+		readmeContent = fmt.Sprintf(`# %s
+
+This is an empty Docker Compose project created with Container Composer.
+
+## Project Structure
+
+- `+"`docker-compose.yml`"+` - Your service definitions
+- `+"`"+`.env.example`+"`"+` - Environment variable templates
+- `+"`services/`"+` - Place service-specific files here
+- `+"`volumes/`"+` - Volume data and mount points
+- `+"`config/`"+` - Configuration files
+
+## Getting Started
+
+1. Copy `+"`"+`.env.example`+"`"+` to `+"`"+`.env`+"`"+` and configure your environment variables
+2. Add your services to `+"`docker-compose.yml`"+`
+3. Start your services: `+"`docker-compose up -d`"+`
+
+## Next Steps
+
+- Define your services in docker-compose.yml
+- Add environment variables in .env
+- Organize service files in the services/ directory
+- Configure volumes and networks as needed
+
+## Container Composer Commands
+
+- `+"`container-composer up`"+` - Start services
+- `+"`container-composer down`"+` - Stop services
+- `+"`container-composer logs`"+` - View logs
+- `+"`container-composer status`"+` - Check service health
+
+For more information, visit: https://github.com/firasmosbahi/container-composer
+`, vars.ProjectName)
+	} else {
+		readmeContent = fmt.Sprintf("# %s\n\n"+
 		"This project was generated using Container Composer with the **%s** template.\n\n"+
 		"## Description\n\n"+
 		"%s\n\n"+
@@ -255,6 +358,7 @@ func (t *Template) createReadme(outputDir string, vars TemplateVars) error {
 		"## License\n\n"+
 		"MIT\n",
 		vars.ProjectName, t.Name, t.Description)
+	}
 
 	return os.WriteFile(readmePath, []byte(readmeContent), 0644)
 }
@@ -313,6 +417,8 @@ func (t *Template) createDirectories(outputDir string) error {
 			"monitoring",
 			"postgres/init",
 		}
+	case "empty":
+		dirs = []string{"services", "volumes", "config"}
 	}
 
 	for _, dir := range dirs {
